@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Heb0"
 #property link      "https://www.mql5.com"
-#property version   "1.03"
+#property version   "1.04"
 #property strict
 
 #include <stderror.mqh> 
@@ -17,24 +17,23 @@ double tp = 0.0;
 double sl = 0.0;
 int active = 0;
 double ma = 0;
-double bma, bu, bd;
-double sto;
+double bma, bu, bd, sto;
 int trig = 0;
-int fcnt = 0;
+double max, min;
 int skip = 0;
 
 void CalcMA() {
   //ma = iMA(Symbol(),PERIOD_M5,3,1,MODE_SMA,PRICE_TYPICAL,1);
   //dma = ma - iMA(Symbol(),PERIOD_M5,3,1,MODE_SMA,PRICE_TYPICAL,2);
   
-  ma = iMA(Symbol(),PERIOD_M15,3,1,MODE_SMA,PRICE_TYPICAL,0);
+  ma = iMA(Symbol(),PERIOD_M15,3,1,MODE_SMA,PRICE_TYPICAL,1);
   //dma = ma - iMA(Symbol(),PERIOD_M15,3,1,MODE_SMA,PRICE_TYPICAL,2);
 }
 
 void CalcBands(int shift) {
-   bma=iBands(NULL,0,15,2.0,0,PRICE_CLOSE,MODE_MAIN,shift);
-   bu=iBands(NULL,0,15,2.0,0,PRICE_CLOSE,MODE_UPPER,shift);
-   bd=iBands(NULL,0,15,2.0,0,PRICE_CLOSE,MODE_LOWER,shift);
+   bma=iBands(NULL,0,15,2.0,1,PRICE_CLOSE,MODE_MAIN,shift);
+   bu=iBands(NULL,0,15,2.0,1,PRICE_CLOSE,MODE_UPPER,shift);
+   bd=iBands(NULL,0,15,2.0,1,PRICE_CLOSE,MODE_LOWER,shift);
 }
 
 void CalcStochastick() {
@@ -90,24 +89,26 @@ int CalculateCurrentOrders(string symbol)
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DoBuy() {
-//  tp=Ask+0.0006;
+//  tp=Ask+0.0020;
 //  sl=Ask-0.0030;
   int res=OrderSend(Symbol(),OP_BUY,LotsOptimized(),Ask,3,sl,tp,"",MAGICMA,0,Blue);
   if(res==-1) printf("Order ERROR: %s",ErrorDescription(GetLastError()));
   trig=0;
-  fcnt=0;
+  max=0.0;
+  min=0.0;
   skip=1;
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DoSell() {
-//  tp=Bid-0.0006;
+//  tp=Bid-0.0020;
 //  sl=Bid+0.0030;
   int res=OrderSend(Symbol(),OP_SELL,LotsOptimized(),Bid,3,sl,tp,"",MAGICMA,0,Red);
   if(res==-1) printf("Order ERROR: %s",ErrorDescription(GetLastError()));
   trig=0;
-  fcnt=0;
+  max=0.0;
+  min=0.0;
   skip=1;
 }
 //+------------------------------------------------------------------+
@@ -121,32 +122,37 @@ void DoClose(int colr) {
     if(!OrderClose(OrderTicket(),OrderLots(),Ask,3,colr)) Print("OrderClose error ",GetLastError());
   }
   printf("[CLOSE] #%d        $%f",OrderTicket(),OrderProfit());
+  skip=1;
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void CheckForOpen() {
+   if(skip>0) { skip--; return; }
    MqlDateTime str;
    TimeToStruct(TimeCurrent(),str);
    if( (str.hour<6)||(str.hour>17) ) { active=0; return; }
    if( (str.hour==17)&&(str.min>0) ) { active=0; return; }
    if(Volume[0]>1) return;
    CalcMA();
+   double bu2, bd2;
    CalcBands(1);
+   bu2 = bu; bd2 = bd;
+   CalcBands(0);
    CalcStochastick();
-   //if( (Open[1]<ma)&&(Close[1]>ma)&&(Close[1]<bu)&&(sto<80) ) {
-   //if( (Open[1]<ma)&&(Close[1]>ma)&&(Close[1]<bu) ) {
-   if( (Open[1]<bma)&&(Close[1]>bma)&&(Close[1]<bu) ) {
-     if(Open[1]>bma) return;
-     printf("[BUY] O %f; C %f; bma %f; bu %f; bd %f",Open[1],Close[1],bma,bu,bd);
+   if( (Open[1]<ma)&&(Close[1]>ma)&&(sto<80) ) {
      DoBuy();
      return;
    }
-   //if( (Open[1]>ma)&&(Close[1]<ma)&&(Close[1]>bd)&&(sto>20) ) {
-   //if( (Open[1]>ma)&&(Close[1]<ma)&&(Close[1]>bd) ) {
-   if( (Open[1]>bma)&&(Close[1]<bma)&&(Close[1]>bd) ) {
-     if(Open[1]<bma) return;
-     printf("[SELL] O %f; C %f; bma %f; bu %f; bd %f",Open[1],Close[1],bma,bu,bd);
+   if( (Close[2]>bu2)&&(Close[1]>bu)&&(sto<80) ) {
+     DoBuy();
+     return;
+   }
+   if( (Open[1]>ma)&&(Close[1]<ma)&&(sto>20) ) {
+     DoSell();
+     return;
+   }
+   if( (Close[2]<bd2)&&(Close[1]<bd)&&(sto>20) ) {
      DoSell();
      return;
    }
@@ -160,7 +166,8 @@ void CheckForClose() {
   MqlDateTime str;
   TimeToStruct(TimeCurrent(),str);
   CalcMA();
-  CalcBands(1);
+  CalcBands(0);
+  CalcStochastick();
   for(int i=0;i<OrdersTotal();i++) {
     if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false) break;
     if(OrderMagicNumber()!=MAGICMA || OrderSymbol()!=Symbol()) continue;
@@ -172,27 +179,12 @@ void CheckForClose() {
 
     if(OrderType()==OP_BUY) {
       if(Close[1]>bu) {
-//      if(Open[0]>bu) {
+//      if(High[1]>bu) {
         DoClose(clrSilver);
         break;
       }
-      if( (Open[1]>bma)&&(Close[1]<bma) ) fcnt++;
-      if( (fcnt>0)&&(High[1]>bu) ) {
-        DoClose(clrBlack);
-        break;
-      }
-      if(fcnt>1) {
-        DoClose(clrBlack);
-//        DoSell();
-        break;
-      }
-      //if( (Open[1]>ma)&&(Close[1]<ma) ) {
-      //  DoClose(clrBlack);
-      //  break;
-      //}
-      //if(Close[1]<bd) {trig=1; break; }
-      //if( (trig==1)&&(Close[1]>ma) ) {
-      //  DoClose(clrBlack);
+      //if( (Open[1]<ma)&&(Close[1]>ma) ) {
+      //  DoClose(clrMaroon);
       //  break;
       //}
       break;
@@ -201,26 +193,12 @@ void CheckForClose() {
 
     if(OrderType()==OP_SELL) {
       if(Close[1]<bd) {
-//      if(Open[0]<bd) {
+//      if(Low[1]<bd) {
         DoClose(clrSilver);
         break;
       }
-      if( (Open[1]<bma)&&(Close[1]>bma) ) fcnt++;
-      if( (fcnt>0)&&(Low[1]<bd) ) {
-        DoClose(clrBlack);
-        break;
-      }
-      if(fcnt>1) {
-        DoClose(clrBlack);
-//        DoBuy();
-      }
-      //if( (Open[1]<ma)&&(Close[1]>ma) ) {
-      //  DoClose(clrBlack);
-      //  break;
-      //}
-      //if(Close[1]>bu) {trig=1; break; }
-      //if( (trig==1)&&(Close[1]<ma) ) {
-      //  DoClose(clrBlack);
+      //if( (Open[1]>ma)&&(Close[1]<ma) ) {
+      //  DoClose(clrMaroon);
       //  break;
       //}
       break;
