@@ -5,13 +5,15 @@
 //+------------------------------------------------------------------+
 #property copyright "Heb0"
 #property link      "https://www.mql5.com"
-#property version   "1.04"
+#property version   "1.05"
 #property strict
 
 #include <stderror.mqh> 
 #include <stdlib.mqh> 
 
 #define MAGICMA  20160425
+#define LASTBUY 1
+#define LASTSELL 2
 
 double tp = 0.0;
 double sl = 0.0;
@@ -21,6 +23,7 @@ double bma, bu, bd, sto;
 int trig = 0;
 double max, min;
 int skip = 0;
+int lasttype = 0;
 
 void CalcMA() {
   //ma = iMA(Symbol(),PERIOD_M5,3,1,MODE_SMA,PRICE_TYPICAL,1);
@@ -97,6 +100,7 @@ void DoBuy() {
   max=0.0;
   min=0.0;
   skip=1;
+  lasttype=LASTBUY;
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -110,6 +114,7 @@ void DoSell() {
   max=0.0;
   min=0.0;
   skip=1;
+  lasttype=LASTSELL;
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -133,6 +138,9 @@ void CheckForOpen() {
    TimeToStruct(TimeCurrent(),str);
    if( (str.hour<6)||(str.hour>17) ) { active=0; return; }
    if( (str.hour==17)&&(str.min>0) ) { active=0; return; }
+   if ( (str.hour==6)&&(str.min>=0) ) {
+     lasttype=0;
+   }
    if(Volume[0]>1) return;
    CalcMA();
    double bu2, bd2;
@@ -140,6 +148,30 @@ void CheckForOpen() {
    bu2 = bu; bd2 = bd;
    CalcBands(0);
    CalcStochastick();
+//   if(lasttype==LASTSELL) {
+//   if( (Open[1]<ma)&&(Close[1]>ma)&&(sto<80) ) {
+//     DoBuy();
+//     return;
+//   }
+//   if( (Close[2]>bu2)&&(Close[1]>bu)&&(sto<80) ) {
+//     DoBuy();
+//     return;
+//   }
+//   return;
+//   } //--LASTSELL
+//   
+//   if(lasttype==LASTBUY) {
+//   if( (Open[1]>ma)&&(Close[1]<ma)&&(sto>20) ) {
+//     DoSell();
+//     return;
+//   }
+//   if( (Close[2]<bd2)&&(Close[1]<bd)&&(sto>20) ) {
+//     DoSell();
+//     return;
+//   }
+//   return;
+//   } //--LASTBUY
+
    if( (Open[1]<ma)&&(Close[1]>ma)&&(sto<80) ) {
      DoBuy();
      return;
@@ -217,5 +249,6 @@ void OnTick()
 //--- calculate open orders by current symbol
    if(CalculateCurrentOrders(Symbol())==0) CheckForOpen();
    else                                    CheckForClose();
+   Comment("Rev.1.05 Last: ",lasttype);
   }
 //+------------------------------------------------------------------+
